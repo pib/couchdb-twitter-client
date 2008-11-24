@@ -4,7 +4,7 @@ function CouchDesign(db, name) {
   };
 };
 
-function TwitterCouch(db, design, callback) {  
+function TwitterCouch(db, design, callback) {
   var currentTwitterID = null;
   var host = "twitter.com";
   function getJSON(path, params, cb) {
@@ -44,7 +44,7 @@ function TwitterCouch(db, design, callback) {
       }
     });
   };
-  
+
   function viewUserWordCloud(userid, cb) {
     design.view('userWordCloud', {
       startkey : [userid],
@@ -61,7 +61,7 @@ function TwitterCouch(db, design, callback) {
       }
     });
   };
-  
+
   function apiCallProceed(force) {
     var previousCall = $.cookies.get('twitter-last-call');
     var d  = new Date;
@@ -99,10 +99,10 @@ function TwitterCouch(db, design, callback) {
         if (hasUserInfo) return;
         alert("There seems to have been a problem getting your logged in twitter info. Please log into Twitter via twitter.com, and then return to this page.")
       },2000);
-      cheapJSONP("http://"+host+"/statuses/user_timeline.json?count=1&callback=userInfo");      
+      cheapJSONP("http://"+host+"/statuses/user_timeline.json?count=1&callback=userInfo");
     }
   };
-  
+
   function getUserTimeline(userid, cb) {
     getJSON("/statuses/user_timeline/"+userid, {count:200}, function(tweets) {
       var doc = {
@@ -112,7 +112,7 @@ function TwitterCouch(db, design, callback) {
       db.saveDoc(doc, {success:cb});
     });
   };
-  
+
   function getFriendsTimeline(cb, opts) {
     getJSON("/statuses/friends_timeline", opts, function(tweets) {
       if (tweets.length > 0) {
@@ -124,9 +124,9 @@ function TwitterCouch(db, design, callback) {
           viewFriendsTimeline(currentTwitterID, cb);
         }});
       }
-    });    
+    });
   };
-  
+
   function searchToTweet(r, term) {
     return {
       search : term,
@@ -140,7 +140,7 @@ function TwitterCouch(db, design, callback) {
       id : r.id
     }
   };
-  
+
   function viewSearchResults(term, cb) {
     design.view('searchResults',{
       startkey : [term,{}],
@@ -153,7 +153,7 @@ function TwitterCouch(db, design, callback) {
       }
     });
   };
-  
+
   function getSearchResults(term, since_id, cb) {
     $.getJSON("http://search.twitter.com/search.json?callback=?", {q:term, since_id:since_id}, function(json) {
       var tweets = $.map(json.results,function(t) {
@@ -169,9 +169,9 @@ function TwitterCouch(db, design, callback) {
       db.saveDoc(doc, {success:function() {
         viewSearchResults(term, cb);
       }});
-    });    
+    });
   };
-  
+
   var publicMethods = {
     friendsTimeline : function(cb, force) {
       viewFriendsTimeline(currentTwitterID, function(storedTweets) {
@@ -205,7 +205,7 @@ function TwitterCouch(db, design, callback) {
     },
     updateStatus : function(status) {
       // todo in_reply_to_status_id
-      $.xdom.post('http://twitter.com/statuses/update.xml',{status:status});        
+      $.xdom.post('http://twitter.com/statuses/update.xml',{status:status, source:'couchdbtwitterclient'});
     },
     userInfo : function(userid, cb) {
       userid = parseInt(userid);
@@ -242,12 +242,12 @@ function TwitterCouch(db, design, callback) {
         success : function(doc) {
           cb(doc);
         },
-        error : function() {          
+        error : function() {
           cb({"_id" : docid, searches : []});
         }
       });
     }
   };
-  
+
   getTwitterID(callback);
 };
