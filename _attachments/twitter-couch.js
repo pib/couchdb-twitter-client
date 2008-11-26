@@ -4,7 +4,7 @@ function CouchDesign(db, name) {
   };
 };
 
-function TwitterCouch(db, design, callback) {
+function TwitterCouch(db, design, callback) {  
   var currentTwitterID = null;
   var host = "twitter.com";
   function getJSON(path, params, cb) {
@@ -44,24 +44,104 @@ function TwitterCouch(db, design, callback) {
       }
     });
   };
+  
+  var gWC = null;
+  function globalWordCloud(cb) {
+    if (gWC) {
+      cb(gWC)
+    } else {
+      
+      design.view('globalWordCount',{
+        success : function(data) {
+          var tWords = data.rows[0].value;
+          console.log('make request');
+          design.view('globalWordCount',{
+            reduce: true,
+            group_level : 1,
+            success : function(view) {
+              gWC = {};
+              var max = 0
+              console.log(""+ view.rows.length + " rows");
+              var st = (new Date()).getTime();
+              for (var i=0; i < view.rows.length; i++) {
+                if (view.rows[i].value > max) max = view.rows[i].value;
+              }
+              console.log("iterate "+((new Date()).getTime() - st))
+              var maxPerc = max / tWords;
+              var multpl = 100 / maxPerc;
+              st = (new Date()).getTime();
+              for (var i=0; i < view.rows.length; i++) {
+                var row = view.rows[i];
+                if (row.value > 4) {
+                  gWC[row.key] = (row.value / tWords) * multpl;                  
+                }
+              };
+              console.log("hash "+((new Date()).getTime() - st))
+              cb(gWC);              
+            }
+          });
+        }
+      });
+    }
+  };
+  
+  // query plan
+  // for each word, what's the chance of user using it? (times said / total words)
+  // for each word, what's the chance of anyone using it?
+  // (ever said / total recorded words)
+  // subtract global ratio from user ratio
 
-  function viewUserWordCloud(userid, cb) {
-    design.view('userWordCloud', {
-      startkey : [userid],
-      endkey : [userid,{}],
-      group_level : 2,
-      success : function(data) {
-        var cloud = [];
-        $.each(data.rows, function(i,row) {
-          if (row.value > 2) cloud.push([row.key[1], row.value]);
-        });
-        cb(cloud.sort(function(a,b) {
-          return b[1] - a[1];
-        }));
-      }
+  // words the user uses more than other people do, will have the highest scores.
+  function calcUserWordCloud(userid, cb) {
+    globalWordCloud(function(gCloud) { // normalized to 100
+      viewUserWordCloud(userid, gCloud, function(usCloud) {
+        console.log(usCloud);
+        cb(usCloud);
+      });
     });
   };
-
+  
+  function userTotalWords(userid, cb) {
+    design.view('userWordCloud', {
+      reduce: true, 
+      startkey : [userid],
+      endkey : [userid,{}],
+      group_level : 1,
+      success : function(data) {
+        cb(data.rows[0].value);
+      } 
+    })
+  };
+  
+  function viewUserWordCloud(userid, gCloud, cb) {
+    userTotalWords(userid, function(uTotal) {
+      design.view('userWordCloud', {
+        startkey : [userid],
+        endkey : [userid,{}],
+        group_level : 2,
+        success : function(data) {
+          var cloud = [];
+          var max = 0
+          for (var i=0; i < data.rows.length; i++) {
+            if (data.rows[i].value > max) max = data.rows[i].value;
+          }
+          var maxPerc = max / uTotal;
+          var multpl = 100 / maxPerc;
+          
+          $.each(data.rows, function(i,row) {
+            var uProb = (row.value / uTotal) * multpl;
+            var gProb = gCloud[row.key[1]] || 0;
+            var nProb = (uProb - gProb);
+            if (nProb > 1) cloud.push([row.key[1], nProb]);
+          });
+          cb(cloud.sort(function(a,b) {
+            return b[1] - a[1];
+          }));
+        }
+      });
+    });
+  };
+  
   function apiCallProceed(force) {
     var previousCall = $.cookies.get('twitter-last-call');
     var d  = new Date;
@@ -99,10 +179,10 @@ function TwitterCouch(db, design, callback) {
         if (hasUserInfo) return;
         alert("There seems to have been a problem getting your logged in twitter info. Please log into Twitter via twitter.com, and then return to this page.")
       },2000);
-      cheapJSONP("http://"+host+"/statuses/user_timeline.json?count=1&callback=userInfo");
+      cheapJSONP("http://"+host+"/statuses/user_timeline.json?count=1&callback=userInfo");      
     }
   };
-
+  
   function getUserTimeline(userid, cb) {
     getJSON("/statuses/user_timeline/"+userid, {count:200}, function(tweets) {
       var doc = {
@@ -112,10 +192,11 @@ function TwitterCouch(db, design, callback) {
       db.saveDoc(doc, {success:cb});
     });
   };
-
+  
   function getFriendsTimeline(cb, opts) {
     getJSON("/statuses/friends_timeline", opts, function(tweets) {
       if (tweets.length > 0) {
+        tweets.length = Math.min(tweets.length, 200);
         var doc = {
           tweets : tweets,
           friendsTimelineOwner : currentTwitterID
@@ -123,10 +204,10 @@ function TwitterCouch(db, design, callback) {
         db.saveDoc(doc, {success:function() {
           viewFriendsTimeline(currentTwitterID, cb);
         }});
-      }
-    });
+      } // we'd need an else here if the timeline wasn't already displayed
+    });    
   };
-
+  
   function searchToTweet(r, term) {
     return {
       search : term,
@@ -140,7 +221,7 @@ function TwitterCouch(db, design, callback) {
       id : r.id
     }
   };
-
+  
   function viewSearchResults(term, cb) {
     design.view('searchResults',{
       startkey : [term,{}],
@@ -153,25 +234,30 @@ function TwitterCouch(db, design, callback) {
       }
     });
   };
-
+  
   function getSearchResults(term, since_id, cb) {
     $.getJSON("http://search.twitter.com/search.json?callback=?", {q:term, since_id:since_id}, function(json) {
       var tweets = $.map(json.results,function(t) {
         return searchToTweet(t, json.query);
       });
-      var d  = new Date;
-      var now = d.getTime();
-      var doc = {
-        tweets : tweets,
-        search : term,
-        time : now
+      if (tweets.length > 0) {
+        tweets.length = Math.min(tweets.length, 200);
+        var d  = new Date;
+        var now = d.getTime();
+        var doc = {
+          tweets : tweets,
+          search : term,
+          time : now
+        }
+        db.saveDoc(doc, {success:function() {
+          viewSearchResults(term, cb);
+        }});
+      } else {
+        viewSearchResults(term, cb);        
       }
-      db.saveDoc(doc, {success:function() {
-        viewSearchResults(term, cb);
-      }});
-    });
+    });    
   };
-
+  
   var publicMethods = {
     friendsTimeline : function(cb, force) {
       viewFriendsTimeline(currentTwitterID, function(storedTweets) {
@@ -205,7 +291,8 @@ function TwitterCouch(db, design, callback) {
     },
     updateStatus : function(status) {
       // todo in_reply_to_status_id
-      $.xdom.post('http://twitter.com/statuses/update.xml',{status:status, source:'couchdbtwitterclient'});
+      $.xdom.post('http://twitter.com/statuses/update.xml',{
+        status:status, source:"couchdbtwitterclient"});        
     },
     userInfo : function(userid, cb) {
       userid = parseInt(userid);
@@ -227,10 +314,10 @@ function TwitterCouch(db, design, callback) {
         success : function(view) {
           // fetch it if not
           if (view.rows.length > 0) {
-            viewUserWordCloud(userid, cb);
+            calcUserWordCloud(userid, cb);
           } else {
             getUserTimeline(userid, function() {
-              viewUserWordCloud(userid, cb);
+              calcUserWordCloud(userid, cb);
             });
           }
         }
@@ -242,12 +329,12 @@ function TwitterCouch(db, design, callback) {
         success : function(doc) {
           cb(doc);
         },
-        error : function() {
+        error : function() {          
           cb({"_id" : docid, searches : []});
         }
       });
     }
   };
-
+  
   getTwitterID(callback);
 };

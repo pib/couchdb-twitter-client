@@ -1,6 +1,6 @@
 function(doc) {
   doc.tweets && doc.tweets.forEach(function(tweet) {
-    if (tweet.text && tweet.id && tweet.user && tweet.user.id) {
+    if (tweet.id && tweet.text) {
       var wordCounts = {};
       var words = tweet.text.toLowerCase().split(/\s/);
       words.forEach(function(word) {
@@ -11,7 +11,7 @@ function(doc) {
         }
       });
       for (var w in wordCounts) {
-        emit([tweet.user.id, w, tweet.id], wordCounts[w]);
+        emit([w, tweet.id], wordCounts[w]);
       }
     }
   });
