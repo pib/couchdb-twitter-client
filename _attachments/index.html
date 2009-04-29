@@ -19,6 +19,7 @@
           <span id="statusCount">140</span>
           <label for="status">Status:</label>
           <textarea name="status" rows="3" cols="52"></textarea>
+          <input type="hidden" id="in_reply_to_status_id" value="" />
           <input type="submit" value="Tweet">
         </form>
         <p id="about"><a href="http://github.com/jchris/couchdb-twitter-client/tree/master">CouchDB Twitter Client</a>: another 24 hour hack by <a href="http:/jchris.mfdz.com/">J Chris Anderson</a>.</p>
@@ -118,8 +119,12 @@
         $('#updateStatus').submit(function(e) {
           e.preventDefault();
           var status = $('#updateStatus textarea').val();
-          tw.updateStatus(status);
+          var in_reply_to = $('#updateStatus #in_reply_to_status_id').val();
+          tw.updateStatus(status, in_reply_to);
+
+          $('#updateStatus #in_reply_to_status_id').val('');
           $('#updateStatus textarea').val('');
+
           updateCount();
           setTimeout(function() {
             tw.friendsTimeline(renderAllTweets, true);
